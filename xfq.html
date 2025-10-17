@@ -312,6 +312,61 @@ h1 {
 .card {
     animation: fadeIn 0.6s ease;
 }
+
+/* 刮刮乐效果样式 */
+.scratch-container {
+    position: relative;
+    display: inline-block;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+    max-width: 100%;
+    max-height: 60vh;
+}
+
+.scratch-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    cursor: crosshair;
+    z-index: 10;
+    touch-action: none;
+}
+
+.scratch-image {
+    display: block;
+    max-width: 100%;
+    max-height: 60vh;
+    border-radius: 12px;
+}
+
+.scratch-hint {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 15px 30px;
+    border-radius: 12px;
+    font-size: 1.2rem;
+    font-weight: 600;
+    pointer-events: none;
+    z-index: 5;
+    animation: pulse 2s infinite;
+    white-space: nowrap;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 0.8;
+        transform: translate(-50%, -50%) scale(1);
+    }
+    50% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.05);
+    }
+}
 </style>
 </head>
 <body>
@@ -333,6 +388,20 @@ h1 {
                 <div class="radio-option">
                     <input type="radio" id="auto-decrypt" name="auto-action" value="decrypt">
                     <label for="auto-decrypt">🔓 自动解混淆</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings-panel">
+            <div class="settings-title">🎨 解密显示模式</div>
+            <div class="radio-group">
+                <div class="radio-option">
+                    <input type="radio" id="display-direct" name="display-mode" value="direct">
+                    <label for="display-direct">直接显示</label>
+                </div>
+                <div class="radio-option">
+                    <input type="radio" id="display-scratch" name="display-mode" value="scratch" checked>
+                    <label for="display-scratch">🎫 刮刮乐效果</label>
                 </div>
             </div>
         </div>
@@ -720,6 +789,215 @@ function getAutoAction() {
     return selected ? selected.value : 'none'
 }
 
+// 获取当前选中的显示模式
+function getDisplayMode() {
+    const selected = document.querySelector('input[name="display-mode"]:checked')
+    return selected ? selected.value : 'direct'
+}
+
+// 刮刮乐效果实现
+function createScratchEffect(imageBlob) {
+    // 清空图片容器
+    imgContainer.innerHTML = ''
+
+    // 创建刮刮乐容器
+    const scratchContainer = document.createElement('div')
+    scratchContainer.className = 'scratch-container'
+
+    // 创建图片元素
+    const scratchImg = document.createElement('img')
+    scratchImg.className = 'scratch-image'
+    scratchImg.src = URL.createObjectURL(imageBlob)
+
+    // 创建画布（遮罩层）
+    const canvas = document.createElement('canvas')
+    canvas.className = 'scratch-canvas'
+
+    // 创建提示文字
+    const hint = document.createElement('div')
+    hint.className = 'scratch-hint'
+    hint.textContent = '👆 滑动鼠标刮开查看图片'
+
+    // 组装元素
+    scratchContainer.appendChild(scratchImg)
+    scratchContainer.appendChild(canvas)
+    scratchContainer.appendChild(hint)
+    imgContainer.appendChild(scratchContainer)
+    imgContainer.classList.add('has-image')
+
+    // 等待图片加载完成后初始化画布
+    scratchImg.onload = () => {
+        const rect = scratchImg.getBoundingClientRect()
+        canvas.width = scratchImg.naturalWidth
+        canvas.height = scratchImg.naturalHeight
+        canvas.style.width = scratchImg.offsetWidth + 'px'
+        canvas.style.height = scratchImg.offsetHeight + 'px'
+
+        const ctx = canvas.getContext('2d')
+
+        // 绘制遮罩层 - 银色刮刮乐效果
+        const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height)
+        gradient.addColorStop(0, '#c0c0c0')
+        gradient.addColorStop(0.5, '#e0e0e0')
+        gradient.addColorStop(1, '#a8a8a8')
+        ctx.fillStyle = gradient
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+        // 添加纹理效果
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)'
+        for (let i = 0; i < canvas.height; i += 4) {
+            ctx.fillRect(0, i, canvas.width, 2)
+        }
+
+        // 添加文字提示在遮罩上
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)'
+        ctx.font = `bold ${canvas.width / 15}px Arial`
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText('刮开查看', canvas.width / 2, canvas.height / 2)
+
+        ctx.globalCompositeOperation = 'destination-out'
+
+        let isDrawing = false
+        let lastX = 0
+        let lastY = 0
+
+        // 计算刮开百分比
+        function calculateScratchPercentage() {
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+            let transparent = 0
+            for (let i = 3; i < imageData.data.length; i += 4) {
+                if (imageData.data[i] === 0) transparent++
+            }
+            return (transparent / (canvas.width * canvas.height)) * 100
+        }
+
+        // 绘制刮痕
+        function scratch(x, y) {
+            const scale = canvas.width / canvas.offsetWidth
+            const scaledX = x * scale
+            const scaledY = y * scale
+
+            ctx.beginPath()
+            ctx.arc(scaledX, scaledY, 30, 0, Math.PI * 2)
+            ctx.fill()
+
+            // 检查刮开百分比
+            if (calculateScratchPercentage() > 50) {
+                // 超过50%自动清除全部遮罩
+                canvas.style.transition = 'opacity 0.5s ease'
+                canvas.style.opacity = '0'
+                hint.style.transition = 'opacity 0.3s ease'
+                hint.style.opacity = '0'
+                setTimeout(() => {
+                    canvas.remove()
+                    hint.remove()
+                }, 500)
+            }
+        }
+
+        // 鼠标事件
+        canvas.addEventListener('mousedown', (e) => {
+            isDrawing = true
+            const rect = canvas.getBoundingClientRect()
+            lastX = e.clientX - rect.left
+            lastY = e.clientY - rect.top
+            scratch(lastX, lastY)
+            hint.style.opacity = '0'
+        })
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDrawing) return
+            const rect = canvas.getBoundingClientRect()
+            const x = e.clientX - rect.left
+            const y = e.clientY - rect.top
+
+            // 绘制连续的线
+            const scale = canvas.width / canvas.offsetWidth
+            ctx.beginPath()
+            ctx.lineWidth = 60
+            ctx.lineCap = 'round'
+            ctx.lineJoin = 'round'
+            ctx.moveTo(lastX * scale, lastY * scale)
+            ctx.lineTo(x * scale, y * scale)
+            ctx.stroke()
+
+            lastX = x
+            lastY = y
+
+            // 检查刮开百分比
+            if (calculateScratchPercentage() > 50) {
+                canvas.style.transition = 'opacity 0.5s ease'
+                canvas.style.opacity = '0'
+                hint.style.transition = 'opacity 0.3s ease'
+                hint.style.opacity = '0'
+                setTimeout(() => {
+                    canvas.remove()
+                    hint.remove()
+                }, 500)
+            }
+        })
+
+        canvas.addEventListener('mouseup', () => {
+            isDrawing = false
+        })
+
+        canvas.addEventListener('mouseleave', () => {
+            isDrawing = false
+        })
+
+        // 触摸事件支持
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault()
+            isDrawing = true
+            const rect = canvas.getBoundingClientRect()
+            const touch = e.touches[0]
+            lastX = touch.clientX - rect.left
+            lastY = touch.clientY - rect.top
+            scratch(lastX, lastY)
+            hint.style.opacity = '0'
+        })
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault()
+            if (!isDrawing) return
+            const rect = canvas.getBoundingClientRect()
+            const touch = e.touches[0]
+            const x = touch.clientX - rect.left
+            const y = touch.clientY - rect.top
+
+            const scale = canvas.width / canvas.offsetWidth
+            ctx.beginPath()
+            ctx.lineWidth = 60
+            ctx.lineCap = 'round'
+            ctx.lineJoin = 'round'
+            ctx.moveTo(lastX * scale, lastY * scale)
+            ctx.lineTo(x * scale, y * scale)
+            ctx.stroke()
+
+            lastX = x
+            lastY = y
+
+            if (calculateScratchPercentage() > 50) {
+                canvas.style.transition = 'opacity 0.5s ease'
+                canvas.style.opacity = '0'
+                hint.style.transition = 'opacity 0.3s ease'
+                hint.style.opacity = '0'
+                setTimeout(() => {
+                    canvas.remove()
+                    hint.remove()
+                }, 500)
+            }
+        })
+
+        canvas.addEventListener('touchend', () => {
+            isDrawing = false
+        })
+    }
+
+    hideProcessing()
+}
+
 async function setsrc(src, skipAuto = false, preserveExif = true, sourceBlob = null){
     URL.revokeObjectURL(img.src)
 
@@ -845,13 +1123,22 @@ async function decrypt(img){
     }
     ctx.putImageData(imgdata2, 0, 0)
 
+    // 获取显示模式
+    const displayMode = getDisplayMode()
+
     // 根据原始格式输出
     if (originalImageFormat === 'png') {
         // 输出 PNG 并注入元数据
         cvs.toBlob(async (blob) => {
             // 注入 PNG 元数据
             const blobWithMetadata = await injectPngMetadata(blob, originalPngMetadata)
-            setsrc(URL.createObjectURL(blobWithMetadata), true, false) // skipAuto = true, preserveExif = false
+
+            // 根据显示模式选择显示方式
+            if (displayMode === 'scratch') {
+                createScratchEffect(blobWithMetadata)
+            } else {
+                setsrc(URL.createObjectURL(blobWithMetadata), true, false) // skipAuto = true, preserveExif = false
+            }
         }, 'image/png')
     } else {
         // 输出 JPEG 并注入 EXIF
@@ -860,7 +1147,12 @@ async function decrypt(img){
         fetch(dataUrlWithExif)
             .then(res => res.blob())
             .then(blob => {
-                setsrc(URL.createObjectURL(blob), true, false)
+                // 根据显示模式选择显示方式
+                if (displayMode === 'scratch') {
+                    createScratchEffect(blob)
+                } else {
+                    setsrc(URL.createObjectURL(blob), true, false)
+                }
             })
     }
 }
